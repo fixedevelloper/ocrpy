@@ -9,7 +9,10 @@ import json
 import os
 from dotenv import load_dotenv
 import uvicorn
+import logging
 
+logger = logging.getLogger("uvicorn")
+logger.setLevel(logging.DEBUG)
 # charger .env
 load_dotenv()
 
@@ -87,35 +90,37 @@ def analyze_with_gemini(image):
 
 @app.post("/analyze-document")
 async def analyze_document(file: UploadFile = File(...)):
+    logger.debug(f"Received file: {file.filename}, size: {file.spool_max_size}")
+    try:
+        content = await file.read()
+        images = []
 
-    content = await file.read()
+        if file.filename.lower().endswith(".pdf"):
+            pdf_images = convert_from_bytes(content)
+            for img in pdf_images:
+                images.append(preprocess_image(img))
+        else:
+            image = Image.open(io.BytesIO(content))
+            images.append(preprocess_image(image))
 
-    images = []
+        results = []
+        for img in images:
+            results.append(analyze_with_gemini(img))
 
-    # PDF
-    if file.filename.lower().endswith(".pdf"):
+        logger.debug(f"Analysis result: {results}")
 
-        pdf_images = convert_from_bytes(content)
+        return {"success": True, "documents": results}
 
-        for img in pdf_images:
-            images.append(preprocess_image(img))
-
-    else:
-
-        image = Image.open(io.BytesIO(content))
-        images.append(preprocess_image(image))
-
-    results = []
-
-    for img in images:
-        results.append(analyze_with_gemini(img))
-
-    return {
-        "success": True,
-        "documents": results
-    }
-
+    except Exception as e:
+        logger.exception("Error processing document")  # ✅ log complet de l'exception
+        return {"success": False, "error": str(e)}
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8001))
-    uvicorn.run("main:app", host="0.0.0.0", port=port)
+    uvicorn.run(
+        "main:app",           # Nom du module et de l'app
+        host="0.0.0.0",
+        port=port,
+        reload=True,          # 🔄 active le rechargement automatique (dev)
+        log_level="debug"     # 🐛 logs détaillés pour debugger
+    )
