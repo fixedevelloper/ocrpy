@@ -1,7 +1,7 @@
 from fastapi import FastAPI, UploadFile, File
 from pdf2image import convert_from_bytes
 from PIL import Image
-import google.generativeai as genai
+from google import genai
 import numpy as np
 import cv2
 import io
@@ -19,13 +19,13 @@ app = FastAPI()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
 
-# configuration Gemini
-genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel(GEMINI_MODEL)
+# nouveau client Gemini
+client = genai.Client(api_key=GEMINI_API_KEY)
 
 
 def preprocess_image(image: Image.Image):
     """Améliore l'image pour OCR"""
+
     img = np.array(image)
 
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
@@ -62,7 +62,21 @@ def analyze_with_gemini(image):
     Si une information n'existe pas retourne null.
     """
 
-    response = model.generate_content([prompt, image])
+    # convertir image en bytes
+    img_bytes = io.BytesIO()
+    image.save(img_bytes, format="PNG")
+
+    response = client.models.generate_content(
+        model=GEMINI_MODEL,
+        contents=[
+            prompt,
+            {
+                "mime_type": "image/png",
+                "data": img_bytes.getvalue()
+            }
+        ]
+    )
+
     text = response.text
 
     try:
@@ -100,6 +114,8 @@ async def analyze_document(file: UploadFile = File(...)):
         "success": True,
         "documents": results
     }
+
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8001))
     uvicorn.run("main:app", host="0.0.0.0", port=port)
