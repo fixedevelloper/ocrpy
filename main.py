@@ -10,7 +10,7 @@ import os
 from dotenv import load_dotenv
 import uvicorn
 import logging
-
+import pytesseract
 logger = logging.getLogger("uvicorn")
 logger.setLevel(logging.DEBUG)
 # charger .env
@@ -26,6 +26,10 @@ GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
 client = genai.Client(api_key=GEMINI_API_KEY)
 
 
+
+def extract_text_from_image(image: Image.Image) -> str:
+    """Extrait le texte brut depuis l'image"""
+    return pytesseract.image_to_string(image, lang="fra")  # "fra" pour français
 def preprocess_image(image: Image.Image):
     """Améliore l'image pour OCR"""
 
@@ -45,48 +49,35 @@ def preprocess_image(image: Image.Image):
     return Image.fromarray(thresh)
 
 
-def analyze_with_gemini(image):
-    """Analyse le document avec Gemini"""
+def analyze_text_with_gemini(text: str):
+    """Analyse le texte extrait avec Gemini pour retourner JSON"""
+    prompt = f"""
+    Voici le texte d'un document : 
+    {text}
 
-    prompt = """
-    Analyse ce document et retourne uniquement du JSON valide.
+    Analyse et retourne uniquement un JSON valide avec ce format :
 
-    Format :
-
-    {
+    {{
       "type_document": null,
       "nom": null,
       "date": null,
       "montant": null,
       "reference": null,
       "description": null
-    }
+    }}
 
-    Si une information n'existe pas retourne null.
+    Si une information n'existe pas, retourne null.
     """
-
-    # convertir image en bytes
-    img_bytes = io.BytesIO()
-    image.save(img_bytes, format="PNG")
 
     response = client.models.generate_content(
         model=GEMINI_MODEL,
-        contents=[
-            prompt,
-            {
-                "mime_type": "image/png",
-                "data": img_bytes.getvalue()
-            }
-        ]
+        contents=[prompt]
     )
 
-    text = response.text
-
     try:
-        return json.loads(text)
+        return json.loads(response.text)
     except:
-        return {"raw_response": text}
-
+        return {"raw_response": response.text}
 
 @app.post("/analyze-document")
 async def analyze_document(file: UploadFile = File(...)):
@@ -96,7 +87,7 @@ async def analyze_document(file: UploadFile = File(...)):
 
         images = []
 
-        # PDF
+        # Convertir PDF en images
         if file.filename.lower().endswith(".pdf"):
             pdf_images = convert_from_bytes(content)
             for img in pdf_images:
@@ -107,14 +98,15 @@ async def analyze_document(file: UploadFile = File(...)):
 
         results = []
         for img in images:
-            results.append(analyze_with_gemini(img))
+            text = extract_text_from_image(img)       # 1️⃣ Extraire texte
+            json_result = analyze_text_with_gemini(text)  # 2️⃣ Envoyer texte à Gemini
+            results.append(json_result)
 
         logger.debug(f"Analysis result: {results}")
-
         return {"success": True, "documents": results}
 
     except Exception as e:
-        logger.exception("Error processing document")  # log complet du traceback
+        logger.exception("Error processing document")
         return {"success": False, "error": str(e)}
     
     

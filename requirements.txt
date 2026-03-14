@@ -7,3 +7,4 @@ opencv-python-headless
 numpy
 google-genai
 python-multipart
+pytesseract
