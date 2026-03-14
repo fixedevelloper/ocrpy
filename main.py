@@ -90,11 +90,13 @@ def analyze_with_gemini(image):
 
 @app.post("/analyze-document")
 async def analyze_document(file: UploadFile = File(...)):
-    logger.debug(f"Received file: {file.filename}, size: {file.spool_max_size}")
     try:
         content = await file.read()
+        logger.debug(f"Received file: {file.filename}, size: {len(content)} bytes")
+
         images = []
 
+        # PDF
         if file.filename.lower().endswith(".pdf"):
             pdf_images = convert_from_bytes(content)
             for img in pdf_images:
@@ -112,9 +114,10 @@ async def analyze_document(file: UploadFile = File(...)):
         return {"success": True, "documents": results}
 
     except Exception as e:
-        logger.exception("Error processing document")  # ✅ log complet de l'exception
+        logger.exception("Error processing document")  # log complet du traceback
         return {"success": False, "error": str(e)}
-
+    
+    
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8001))
     uvicorn.run(
